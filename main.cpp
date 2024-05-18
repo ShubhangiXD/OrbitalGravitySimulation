@@ -7,6 +7,8 @@ class GravitySource {
     sf::Vector2f pos;
     float gravStrength;
     sf::CircleShape circle;
+    sf::CircleShape outline;
+    float outlineRadius;
 
 public:
     GravitySource(float posX, float posY, float gravStrength) {
@@ -17,10 +19,23 @@ public:
         //initiating the position, colour and size of the planet.
         circle.setPosition(pos);
         circle.setFillColor(sf::Color::White);
-        circle.setRadius(10);
+        circle.setRadius(20);
+
+        outlineRadius = circle.getRadius() * 5;
+        outline.setPosition(pos.x - outlineRadius + circle.getRadius(), pos.y - outlineRadius + circle.getRadius());  // Adjust position based on the desired distance
+        outline.setFillColor(sf::Color::Transparent);  // No fill color
+        outline.setOutlineThickness(1);  // Set the outline thickness
+        outline.setOutlineColor(sf::Color::Yellow);  // Set the outline color
+        outline.setRadius(outlineRadius);  // Set the radius larger than the original circle
+
+    }
+
+    float getOutlineRadius() const {
+        return outlineRadius;
     }
 
     void render(sf::RenderWindow& wind) {
+        wind.draw(outline);
         wind.draw(circle);
     }
 
@@ -30,6 +45,10 @@ public:
 
     float getGravStrength() const {
         return gravStrength;
+    }
+    int getRadius() {
+        int radius = 20;
+        return radius;
     }
 };
 
@@ -41,9 +60,12 @@ class Particles {
     sf::Vector2f pos;
     sf::Vector2f velo;
     sf::CircleShape circle;
+    std::vector<sf::Vertex> trail;  // Store the trail as a vector of vertices
+    bool isAlive;
+    bool isCircling;
 
 public:
-    Particles(float posX, float posY,float velX, float velY) {
+    Particles(float posX, float posY,float velX, float velY) : isAlive(true), isCircling(false) {
         pos.x = posX;
         pos.y = posY;
         velo.x = velX;
@@ -51,12 +73,23 @@ public:
 
         circle.setPosition(pos);
         circle.setFillColor(sf::Color::White);
-        circle.setRadius(5);
+        circle.setRadius(10);
     }
 
     void render(sf::RenderWindow& wind) {
         circle.setPosition(pos);
         wind.draw(circle);
+        for (auto & vertex : trail) {
+            vertex.color.a = 64;  // Set a constant alpha value
+        }
+        if (trail.size() > 1) {
+            wind.draw(&trail[0], trail.size(), sf::LinesStrip);
+        }
+    }
+
+    int getRadius() {
+        int radius = 10;
+        return radius;
     }
 
     //can change the number of references for this.
@@ -87,10 +120,49 @@ public:
 
         pos.x += velo.x;
         pos.y += velo.y;
+        sf::Vector2f trailPos = pos;
+        trailPos.x += getRadius();  // Adjust for the center of the particle
+        trailPos.y += getRadius();  // Adjust for the center of the particle
+        trail.emplace_back(trailPos, sf::Color::White);
+
+        // if (trail.size() > 200) {
+        //     trail.erase(trail.begin());
+        // }
+
+        if (dist <= circle.getOutlineRadius()) {
+            isCircling = true;
+        }
+        if (isCircling) {
+            // Calculate the angle of the velocity vector
+            float angle = std::atan2(velo.y, velo.x);
+
+            // Add 90 degrees to the angle to make the particle move in a circle
+            // angle += 3.14159f / 8;
+
+            // Calculate the new velocity vector
+            float speed = std::sqrt(velo.x * velo.x + velo.y * velo.y);
+
+            float gravForceX = circle.getGravStrength() * invSqrDropOff * normX;
+            float gravForceY = circle.getGravStrength() * invSqrDropOff * normY;
+            float speedX = speed + gravForceX;
+            float speedY = speed + gravForceY;
+            velo.x = std::cos(angle) * speedX;
+            velo.y = std::sin(angle) * speedY;
+
+            // Check if the particle has reached the GravitySource
+            if (dist <= circle.getRadius()) {
+                // If it has, set isAlive to false
+                isAlive = false;
+            }
+        }
     }
     void setColour(sf::Color colour) {
         circle.setFillColor(colour);
     }
+    bool getIsAlive() const {
+        return isAlive;
+    }
+
 };
 
 //calculating colour
@@ -98,16 +170,6 @@ sf::Color mapValueToColour(float value) {
     if (value < 0.0f) value = 0;
     if (value > 1.0f) value = 1;
     int red = 0, green = 0, blue = 0;
-    //purple peach gradient
-    // if (value < 0.5) {
-    //     red = 128 + (255 - 128) * 2 * value;
-    //     green = 0 + (170 - 0) * 2 * value;
-    //     blue = 128;  // Stays constant for purple-pink transition
-    // } else {
-    //     red = 255;  // Stays constant for pink
-    //     green = 170;  // Stays constant for pink
-    //     blue = 128 + (200 - 128) * (value - 0.5);
-    // }
     if (value < 0.5) {
         // Transition from blue to green
         blue = 255;  // Keep blue at its maximum
@@ -130,14 +192,14 @@ int main()
     window.setFramerateLimit(60);
 
     std::vector<GravitySource> sources;
-    sources.emplace_back(500, 500, 7000);
-    sources.emplace_back(1200, 500, 7000);
+    sources.emplace_back(500, 500, 3000);
+    // sources.emplace_back(1200, 500, 7000);
 
-    int numParticles = 2000;
+    int numParticles = 1;
     std::vector<Particles> particles;
     particles.reserve(numParticles);
     for (int i=0; i < numParticles; i++) {
-        particles.emplace_back(600, 700, 4,0.1+(0.1/numParticles)*i);
+        particles.emplace_back(600, 700, 5,0.6+(0.1/numParticles)*i);
         float val = (float)i / (float)numParticles;
         sf::Color col = mapValueToColour(val);
         particles[i].setColour(col);
@@ -155,7 +217,10 @@ int main()
         window.clear();
         for (auto & source : sources) {
             for(auto & particle : particles) {
-                particle.updatePhysics(source);
+                if (particle.getIsAlive()) {  // Only update and render alive particles
+                    particle.updatePhysics(source);
+                    particle.render(window);
+                }
             }
         }
 
